@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="시추주상도">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <title>시추주상도 작성 프로그램</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #f0f2f5; }
+
+        .app-container { display: flex; height: 100vh; }
+
+        /* 좌측 입력 패널 */
+        .input-panel {
+            width: 420px; min-width: 420px;
+            background: #fff; border-right: 2px solid #ddd;
+            overflow-y: auto; padding: 16px;
+        }
+        .input-panel h2 { font-size: 18px; margin-bottom: 12px; color: #333; border-bottom: 2px solid #2c3e50; padding-bottom: 8px; }
+
+        .section { margin-bottom: 16px; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+        .section-header {
+            background: #2c3e50; color: #fff; padding: 8px 12px; font-size: 14px; font-weight: bold;
+            cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;
+        }
+        .section-header:hover { background: #34495e; }
+        .section-body { padding: 12px; }
+
+        .form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        .form-row label { font-size: 12px; color: #555; min-width: 60px; white-space: nowrap; }
+        .form-row input, .form-row select { flex: 1; padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+        .form-row input:focus, .form-row select:focus { outline: none; border-color: #3498db; }
+
+        /* 지층 테이블 */
+        .layer-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+        .layer-table th { background: #ecf0f1; padding: 4px; border: 1px solid #ccc; font-size: 11px; }
+        .layer-table td { padding: 2px; border: 1px solid #ccc; }
+        .layer-table input, .layer-table select { width: 100%; border: none; padding: 3px; font-size: 11px; }
+        .layer-table input:focus { background: #fff9e6; outline: none; }
+
+        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .btn-primary { background: #3498db; color: #fff; }
+        .btn-success { background: #27ae60; color: #fff; }
+        .btn-danger { background: #e74c3c; color: #fff; }
+        .btn-warning { background: #f39c12; color: #fff; }
+        .btn:hover { opacity: 0.85; }
+
+        .btn-group { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+        /* SPT 테이블 */
+        .spt-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+        .spt-table th { background: #ecf0f1; padding: 3px; border: 1px solid #ccc; font-size: 10px; }
+        .spt-table td { padding: 1px; border: 1px solid #ccc; }
+        .spt-table input { width: 100%; border: none; padding: 2px; font-size: 11px; text-align: center; }
+
+        /* 우측 미리보기 패널 */
+        .preview-panel {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            padding: 16px; overflow: auto; background: #e8e8e8;
+        }
+        .preview-controls { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
+        .preview-controls label { font-size: 13px; }
+        #preview-canvas {
+            background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        }
+
+        .toggle-arrow { transition: transform 0.2s; }
+        .toggle-arrow.collapsed { transform: rotate(-90deg); }
+
+        /* 모바일 탭 네비게이션 */
+        .mobile-nav {
+            display: none;
+            background: #2c3e50; padding: 0; margin: 0;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .mobile-nav button {
+            flex: 1; padding: 12px; border: none; background: #2c3e50;
+            color: #aaa; font-size: 15px; font-weight: bold; cursor: pointer;
+        }
+        .mobile-nav button.active {
+            color: #fff; border-bottom: 3px solid #3498db; background: #34495e;
+        }
+
+        /* 모바일 반응형 */
+        @media screen and (max-width: 768px) {
+            .mobile-nav { display: flex; }
+            .app-container { flex-direction: column; height: auto; min-height: 100vh; }
+            .input-panel {
+                width: 100% !important; min-width: unset !important;
+                border-right: none; border-bottom: 2px solid #ddd;
+                max-height: none; overflow-y: visible;
+            }
+            .preview-panel { padding: 8px; min-height: 60vh; }
+            .preview-controls { flex-wrap: wrap; justify-content: center; }
+            #preview-canvas { max-width: 100%; height: auto !important; }
+
+            .form-row { flex-wrap: wrap; }
+            .form-row label { min-width: 70px; font-size: 13px; }
+            .form-row input, .form-row select { font-size: 14px; padding: 8px; min-height: 36px; }
+
+            .layer-table th, .layer-table td { padding: 4px 2px; font-size: 11px; }
+            .layer-table input, .layer-table select { font-size: 12px; padding: 4px; }
+            .spt-table th, .spt-table td { padding: 4px 2px; }
+            .spt-table input { font-size: 12px; padding: 4px; }
+
+            .btn { padding: 10px 14px; font-size: 14px; }
+            .btn-group { gap: 8px; }
+
+            .section-header { padding: 12px; font-size: 15px; }
+            .section-body { padding: 12px; }
+            .section-body label { font-size: 12px; }
+            .section-body input, .section-body select, .section-body textarea {
+                font-size: 14px !important; padding: 8px !important; min-height: 36px;
+            }
+
+            .input-panel.mobile-hidden { display: none; }
+            .preview-panel.mobile-hidden { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 모바일 탭 -->
+    <div class="mobile-nav" id="mobileNav">
+        <button class="active" onclick="switchTab('input')">입력</button>
+        <button onclick="switchTab('preview')">미리보기</button>
+    </div>
+
+    <div class="app-container">
+        <!-- 입력 패널 -->
+        <div class="input-panel" id="inputPanel">
+            <h2>시추주상도 작성</h2>
+
+            <!-- 기본 정보 -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    기본 정보 <span class="toggle-arrow">▼</span>
+                </div>
+                <div class="section-body">
+                    <div class="form-row"><label>공사명</label><input type="text" id="projectName" value="2025년 지하수자원(금강) 상세조사 시험공"></div>
+                    <div class="form-row"><label>공번</label><input type="text" id="holeNo" value="GS-2"></div>
+                    <div class="form-row"><label>위치</label><input type="text" id="location" value="사리면 종률리 986"></div>
+                    <div class="form-row"><label>지반표고</label><input type="number" id="elevation" value="77.16" step="0.01"> <span style="font-size:12px">M</span></div>
+                    <div class="form-row"><label>지하수위</label><input type="text" id="groundWater" value="GL- 2.70"> <span style="font-size:12px">M</span></div>
+                    <div class="form-row"><label>시추일</label><input type="text" id="dateFrom" value="2025.10.30" style="width:120px;flex:none"> <span style="font-size:12px">~</span> <input type="text" id="dateTo" value="2025.10.30" style="width:120px;flex:none"></div>
+                    <div class="form-row"><label>감독자</label><input type="text" id="inspector" value="배 O 제"></div>
+                    <input type="hidden" id="equipment" value="">
+                    <input type="hidden" id="pageNo" value="1">
+                    <input type="hidden" id="totalPages" value="1">
+                </div>
+            </div>
+
+            <!-- 지층 정보 -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    지층 정보 <span class="toggle-arrow">▼</span>
+                </div>
+                <div class="section-body">
+                    <!-- 요약 테이블 -->
+                    <table class="layer-table" id="layerSummaryTable">
+                        <thead>
+                            <tr>
+                                <th style="width:24px">No</th>
+                                <th style="width:55px">지층명</th>
+                                <th style="width:45px">상부</th>
+                                <th style="width:45px">하부</th>
+                                <th style="width:50px">USCS</th>
+                                <th>설명</th>
+                            </tr>
+                        </thead>
+                        <tbody id="layerTableBody">
+                        </tbody>
+                    </table>
+
+                    <!-- 입력/수정 폼 -->
+                    <div style="margin-top:10px; padding:10px; background:#f8f9fa; border:1px solid #ddd; border-radius:4px;">
+                        <div style="display:flex; gap:6px; margin-bottom:6px;">
+                            <div style="flex:1">
+                                <label style="font-size:11px;color:#555">지층이름</label>
+                                <select id="layerFormName" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                    <option value="매립층">매립층</option>
+                                    <option value="퇴적층">퇴적층</option>
+                                    <option value="풍화토">풍화토</option>
+                                    <option value="풍화암">풍화암</option>
+                                    <option value="연암">연암</option>
+                                    <option value="경암">경암</option>
+                                </select>
+                            </div>
+                            <div style="flex:0.6">
+                                <label style="font-size:11px;color:#555">상부심도</label>
+                                <input type="number" id="layerFormTop" step="0.1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                            </div>
+                            <div style="flex:0.6">
+                                <label style="font-size:11px;color:#555">하부심도</label>
+                                <input type="number" id="layerFormBottom" step="0.1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                            </div>
+                            <div style="flex:0.8">
+                                <label style="font-size:11px;color:#555">USCS</label>
+                                <select id="layerFormUscs" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                    <option value="">-</option>
+                                    <optgroup label="자갈(G)">
+                                        <option value="GW">GW (입도좋은자갈)</option>
+                                        <option value="GP">GP (입도나쁜자갈)</option>
+                                        <option value="GM">GM (실트질자갈)</option>
+                                        <option value="GC">GC (점토질자갈)</option>
+                                        <option value="GP-GM">GP-GM</option>
+                                    </optgroup>
+                                    <optgroup label="모래(S)">
+                                        <option value="SW">SW (입도좋은모래)</option>
+                                        <option value="SP">SP (입도나쁜모래)</option>
+                                        <option value="SM">SM (실트질모래)</option>
+                                        <option value="SC">SC (점토질모래)</option>
+                                    </optgroup>
+                                    <optgroup label="실트/점토(M,C)">
+                                        <option value="ML">ML (저압축실트)</option>
+                                        <option value="MH">MH (고압축실트)</option>
+                                        <option value="CL">CL (저압축점토)</option>
+                                        <option value="CL-ML">CL-ML</option>
+                                        <option value="CH">CH (고압축점토)</option>
+                                    </optgroup>
+                                    <optgroup label="유기질(O)">
+                                        <option value="OL">OL</option>
+                                        <option value="OH">OH</option>
+                                        <option value="PT">PT (이탄)</option>
+                                    </optgroup>
+                                    <optgroup label="암반">
+                                        <option value="풍화토">풍화토</option>
+                                        <option value="풍화암">풍화암</option>
+                                        <option value="연암">연암</option>
+                                        <option value="경암">경암</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="margin-bottom:6px;">
+                            <label style="font-size:11px;color:#555">지층설명</label>
+                            <textarea id="layerFormDesc" rows="4" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px;resize:vertical"></textarea>
+                        </div>
+                        <div style="display:flex; gap:4px;">
+                            <button class="btn btn-primary" onclick="layerFormAdd()" style="font-size:11px;padding:4px 10px">추가</button>
+                            <button class="btn btn-success" onclick="layerFormUpdate()" style="font-size:11px;padding:4px 10px">수정</button>
+                            <button class="btn btn-danger" onclick="layerFormDelete()" style="font-size:11px;padding:4px 10px">삭제</button>
+                            <button class="btn btn-warning" onclick="layerFormClear()" style="font-size:11px;padding:4px 10px">초기화</button>
+                        </div>
+                        <input type="hidden" id="layerFormIdx" value="-1">
+                    </div>
+                </div>
+            </div>
+
+            <!-- SPT 시험 -->
+            <div class="section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    표준관입시험 (SPT) <span class="toggle-arrow">▼</span>
+                </div>
+                <div class="section-body">
+                    <!-- 요약 테이블 -->
+                    <table class="spt-table" id="sptSummaryTable">
+                        <thead>
+                            <tr>
+                                <th style="width:24px">No</th>
+                                <th style="width:45px">심도</th>
+                                <th style="width:45px">시료번호</th>
+                                <th style="width:45px">채취방법</th>
+                                <th style="width:50px">타격(N/cm)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sptTableBody">
+                        </tbody>
+                    </table>
+
+                    <!-- 입력/수정 폼 -->
+                    <div style="margin-top:10px; padding:10px; background:#f8f9fa; border:1px solid #ddd; border-radius:4px;">
+                        <div style="display:flex; gap:6px; margin-bottom:6px;">
+                            <div style="flex:1">
+                                <label style="font-size:11px;color:#555">채취심도 (m)</label>
+                                <input type="number" id="sptFormDepth" step="0.5" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                            </div>
+                            <div style="flex:1">
+                                <label style="font-size:11px;color:#555">시료번호</label>
+                                <input type="text" id="sptFormSampleNo" value="" placeholder="S-1" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                            </div>
+                            <div style="flex:1">
+                                <label style="font-size:11px;color:#555">채취방법</label>
+                                <select id="sptFormMethod" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                    <option value="S.P.T">S.P.T (표준관입)</option>
+                                    <option value="U.D">U.D (자연시료)</option>
+                                    <option value="CORE">CORE (코어시료)</option>
+                                    <option value="N.S">N.S (N값없음)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:6px; margin-bottom:8px;">
+                            <div style="flex:1">
+                                <label style="font-size:11px;color:#555">타격횟수 (N값)</label>
+                                <input type="number" id="sptFormBlow1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                            </div>
+                            <div style="flex:1">
+                                <label style="font-size:11px;color:#555">관입량 (cm)</label>
+                                <input type="number" id="sptFormBlow2" value="30" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:4px;">
+                            <button class="btn btn-primary" onclick="sptFormAdd()" style="font-size:11px;padding:4px 10px">추가</button>
+                            <button class="btn btn-success" onclick="sptFormUpdate()" style="font-size:11px;padding:4px 10px">수정</button>
+                            <button class="btn btn-danger" onclick="sptFormDelete()" style="font-size:11px;padding:4px 10px">삭제</button>
+                            <button class="btn btn-warning" onclick="sptFormClear()" style="font-size:11px;padding:4px 10px">초기화</button>
+                        </div>
+                        <input type="hidden" id="sptFormIdx" value="-1">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 버튼 -->
+            <div class="btn-group" style="margin-top: 16px;">
+                <button class="btn btn-success" onclick="renderPreview()" style="flex:1; padding: 10px; font-size: 14px;">미리보기 갱신</button>
+                <button class="btn btn-warning" onclick="exportPDF()" style="flex:1; padding: 10px; font-size: 14px;">PDF 출력</button>
+            </div>
+            <div class="btn-group" style="margin-top: 8px;">
+                <button class="btn btn-primary" onclick="saveData()">데이터 저장</button>
+                <button class="btn btn-primary" onclick="loadData()">데이터 불러오기</button>
+                <button class="btn btn-danger" onclick="loadSampleData()">샘플 데이터</button>
+            </div>
+        </div>
+
+        <!-- 미리보기 패널 -->
+        <div class="preview-panel mobile-hidden" id="previewPanel">
+            <div class="preview-controls">
+                <label>배율:</label>
+                <select id="zoomLevel" onchange="renderPreview()">
+                    <option value="1.0" selected>100%</option>
+                    <option value="1.2">120%</option>
+                    <option value="1.5">150%</option>
+                    <option value="1.7">170%</option>
+                    <option value="2.0">200%</option>
+                </select>
+                <button class="btn btn-success" onclick="renderPreview()">갱신</button>
+            </div>
+            <canvas id="preview-canvas"></canvas>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleFileLoad(event)">
+
+    <script>
+    function switchTab(tab) {
+        const nav = document.getElementById('mobileNav');
+        const input = document.getElementById('inputPanel');
+        const preview = document.getElementById('previewPanel');
+        const btns = nav.querySelectorAll('button');
+        if (tab === 'input') {
+            input.classList.remove('mobile-hidden');
+            preview.classList.add('mobile-hidden');
+            btns[0].classList.add('active');
+            btns[1].classList.remove('active');
+        } else {
+            input.classList.add('mobile-hidden');
+            preview.classList.remove('mobile-hidden');
+            btns[1].classList.add('active');
+            btns[0].classList.remove('active');
+            setTimeout(() => renderPreview(), 100);
+        }
+    }
+    </script>
+    <script src="drilllog.js"></script>
+    <script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js');
+    }
+    </script>
+</body>
+</html>

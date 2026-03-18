@@ -1,4 +1,4 @@
-const CACHE_NAME = 'drilllog-v1';
+const CACHE_NAME = 'drilllog-v2';
 const ASSETS = [
   './',
   './index.html',

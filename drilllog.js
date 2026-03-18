@@ -340,6 +340,21 @@ function applyFormData(d) {
     refreshLayerTable(); refreshSPTTable();
 }
 
+// --- 새로 입력 (전체 리셋) ---
+function newData() {
+    if (!confirm('모든 입력 데이터를 초기화하시겠습니까?')) return;
+    applyFormData({
+        projectName: '', holeNo: '', location: '',
+        elevation: 0, groundWater: '',
+        dateFrom: '', dateTo: '', inspector: '',
+        equipment: '', pageNo: 1, totalPages: 1,
+        layers: [], sptData: []
+    });
+    layerFormClear();
+    sptFormClear();
+    renderPreview();
+}
+
 // --- 샘플 데이터 (GS-2 기반) ---
 function loadSampleData() {
     applyFormData({

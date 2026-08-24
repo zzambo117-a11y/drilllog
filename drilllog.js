@@ -38,6 +38,10 @@ const COL_HDR_Y = HDR_INFO_Y + HDR_INFO_H + 4;
 const COL_HDR_H = 50;
 const BODY_TOP = COL_HDR_Y + COL_HDR_H;
 
+const FOOTER_H = 30;
+const AVAILABLE_H = PAGE_H - BODY_TOP - FOOTER_H; // 페이지 1장의 본문 가용 높이
+const MIN_DEPTH_PX = 14; // 최소 가독 축척(px/m) — 이보다 작아지면 페이지를 분할
+
 // --- UI ---
 function toggleSection(header) {
     const body = header.nextElementSibling;
@@ -405,40 +409,74 @@ function loadSampleData() {
 }
 
 // ============================================
-// 렌더링 엔진 v3
+// 렌더링 엔진 v3 — 다중 페이지 지원
 // ============================================
+
+// 심도 범위를 A4 페이지 단위로 분할.
+// 한 페이지에 다 들어가면(축척이 MIN_DEPTH_PX 이상) 1페이지로 자동 확대,
+// 그렇지 않으면 MIN_DEPTH_PX를 유지한 채 여러 페이지로 균등 분할한다.
+function computePagination(maxDepth) {
+    if (!maxDepth || maxDepth <= 0) {
+        return { totalPages: 1, depthPx: AVAILABLE_H, pages: [{ from: 0, to: 0 }] };
+    }
+    const fitDepthPx = AVAILABLE_H / maxDepth;
+    if (fitDepthPx >= MIN_DEPTH_PX) {
+        return { totalPages: 1, depthPx: fitDepthPx, pages: [{ from: 0, to: maxDepth }] };
+    }
+    const maxDepthPerPage = AVAILABLE_H / MIN_DEPTH_PX;
+    const totalPages = Math.ceil(maxDepth / maxDepthPerPage);
+    const depthPerPage = maxDepth / totalPages;
+    const depthPx = AVAILABLE_H / depthPerPage;
+    const pages = [];
+    for (let i = 0; i < totalPages; i++) {
+        pages.push({ from: i * depthPerPage, to: i === totalPages - 1 ? maxDepth : (i + 1) * depthPerPage });
+    }
+    return { totalPages, depthPx, pages };
+}
+
 function renderPreview() {
     const data = collectFormData();
-    const canvas = document.getElementById('preview-canvas');
+    const container = document.getElementById('preview-pages');
     const zoom = parseFloat(document.getElementById('zoomLevel').value);
     const maxDepth = layers.length ? Math.max(...layers.map(l => l.bottomDepth)) : 20;
+    const layout = computePagination(maxDepth);
 
-    // A4 한 페이지 고정 — DEPTH_PX를 동적 계산
-    const FOOTER_H = 30;
-    const availableH = PAGE_H - BODY_TOP - FOOTER_H;
-    DEPTH_PX = availableH / maxDepth;
+    document.getElementById('totalPages').value = layout.totalPages;
 
-    const bodyH = maxDepth * DEPTH_PX; // = availableH
-    const totalH = PAGE_H;
+    container.innerHTML = '';
+    for (let i = 0; i < layout.totalPages; i++) {
+        const canvas = document.createElement('canvas');
+        canvas.className = 'page-canvas';
+        canvas.width = PW * zoom;
+        canvas.height = PAGE_H * zoom;
+        canvas.style.width = (PW * zoom) + 'px';
+        canvas.style.height = (PAGE_H * zoom) + 'px';
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(zoom, 0, 0, zoom, 0, 0);
+        renderPage(ctx, data, layout, i);
+        container.appendChild(canvas);
+    }
 
-    canvas.width = PW * zoom;
-    canvas.height = totalH * zoom;
-    canvas.style.width = (PW * zoom) + 'px';
-    canvas.style.height = (totalH * zoom) + 'px';
+    const pageInfo = document.getElementById('pageCountInfo');
+    if (pageInfo) pageInfo.textContent = `총 ${layout.totalPages} 페이지`;
+}
 
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(zoom, 0, 0, zoom, 0, 0);
+// 페이지 1장을 캔버스 컨텍스트에 그린다 (미리보기/출력 공용)
+function renderPage(ctx, data, layout, pageIdx) {
+    const pageData = Object.assign({}, data, { pageNo: pageIdx + 1, totalPages: layout.totalPages });
+    DEPTH_PX = layout.depthPx;
+
     ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, PW, totalH);
+    ctx.fillRect(0, 0, PW, PAGE_H);
     ctx.fillStyle = '#000';
     ctx.strokeStyle = '#000';
 
-    drawTitle(ctx, data);
-    drawHeaderInfo(ctx, data);
+    drawTitle(ctx, pageData);
+    drawHeaderInfo(ctx, pageData);
     drawLegend(ctx);
     drawColHeaders(ctx);
-    drawBody(ctx, data, maxDepth);
-    drawFooter(ctx, data, BODY_TOP + bodyH);
+    drawBody(ctx, pageData, layout, pageIdx);
+    drawFooter(ctx, pageData, layout, pageIdx);
 }
 
 // ========== 타이틀 (BM-1 참고: 넓은 자간, 세리프체) ==========
@@ -722,10 +760,15 @@ function hdrText(ctx, col, y0, lines) {
     });
 }
 
-// ========== 본문 ==========
-function drawBody(ctx, data, maxDepth) {
+// ========== 본문 (페이지별 심도 구간만 그림) ==========
+function drawBody(ctx, data, layout, pageIdx) {
     const bt = BODY_TOP;
-    const bodyH = maxDepth * DEPTH_PX;
+    const page = layout.pages[pageIdx];
+    const pageFrom = page.from, pageTo = page.to;
+    const bodyH = (pageTo - pageFrom) * DEPTH_PX;
+    const toY = d => bt + (d - pageFrom) * DEPTH_PX;
+    const EPS = 1e-6;
+    const isLastPage = pageIdx === layout.totalPages - 1;
 
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 0.5;
@@ -737,154 +780,157 @@ function drawBody(ctx, data, maxDepth) {
     const allCols = [C.elev, C.scale, C.depth, C.thick, C.colDiag, C.secName, C.desc, C.uscs, C.sampNo, C.sampSym, C.sampDep, C.nBlow, C.blow];
     allCols.forEach(c => vline(ctx, c.x, bt, bt + bodyH));
 
-    // 스케일 눈금: 1m=긴선, 0.5m=중간선, 0.1m=짧은선
+    // 스케일 눈금: 1m=긴선, 0.5m=중간선, 0.1m=짧은선, 5m=굵은선 (절대 심도 기준, 페이지 범위만)
     ctx.strokeStyle = '#000';
     const sx = C.scale.x;
     const sw = C.scale.w;
+    const ticksIn = (interval) => {
+        const arr = [];
+        const startI = Math.ceil((pageFrom + EPS) / interval);
+        const endI = Math.floor((pageTo - EPS) / interval);
+        for (let i = startI; i <= endI; i++) arr.push(i * interval);
+        return arr;
+    };
     // 0.1m 간격 짧은선 (오른쪽 1/4만)
     ctx.lineWidth = 0.2;
-    for (let d = 0.1; d < maxDepth; d += 0.1) {
-        const sy = bt + d * DEPTH_PX;
-        hline(ctx, sx + sw * 0.75, sy, sx + sw);
-    }
+    ticksIn(0.1).forEach(d => hline(ctx, sx + sw * 0.75, toY(d), sx + sw));
     // 0.5m 간격 중간선 (오른쪽 절반)
     ctx.lineWidth = 0.3;
-    for (let d = 0.5; d < maxDepth; d += 0.5) {
-        const sy = bt + d * DEPTH_PX;
-        hline(ctx, sx + sw / 2, sy, sx + sw);
-    }
+    ticksIn(0.5).forEach(d => hline(ctx, sx + sw / 2, toY(d), sx + sw));
     // 1m 간격 긴선 (전체 너비)
     ctx.lineWidth = 0.3;
-    for (let d = 1; d < maxDepth; d++) {
-        const sy = bt + d * DEPTH_PX;
-        hline(ctx, sx, sy, sx + sw);
-    }
+    ticksIn(1).forEach(d => hline(ctx, sx, toY(d), sx + sw));
     // 5m 간격 굵은 긴선
     ctx.lineWidth = 0.6;
-    for (let d = 5; d < maxDepth; d += 5) {
-        const sy = bt + d * DEPTH_PX;
-        hline(ctx, sx, sy, sx + sw);
-    }
+    ticksIn(5).forEach(d => hline(ctx, sx, toY(d), sx + sw));
 
-    // ===== 지층 =====
-    // 1단계: 설명 텍스트 높이 계산 → 설명 컬럼 경계 Y 좌표 결정
+    // ===== 지층 (이 페이지 심도 범위와 겹치는 것만) =====
+    const pageLayers = layers
+        .map((layer, idx) => ({ layer, idx }))
+        .filter(({ layer }) => layer.bottomDepth > pageFrom + EPS && layer.topDepth < pageTo - EPS);
+
+    // 1단계: 설명 텍스트 높이 계산 (이 페이지에서 시작하는 지층만, 커서는 페이지 상단부터)
     const descFontSize = 8;
     const descLineGap = descFontSize + 2;
-    let descBoundaries = []; // 각 지층의 설명 컬럼 시작/끝 Y
-    let descCursorY = bt;   // 설명 컬럼의 현재 Y 커서
-
     const diagW = 20; // 사선 구간 너비
-    layers.forEach((layer) => {
-        const y1 = bt + layer.topDepth * DEPTH_PX;
-        const y2 = bt + layer.bottomDepth * DEPTH_PX;
+    const descInfo = new Map();
+    let descCursorY = bt;
+    pageLayers.forEach(({ layer, idx }) => {
+        const y1 = toY(Math.max(layer.topDepth, pageFrom));
+        const y2 = toY(Math.min(layer.bottomDepth, pageTo));
+        const startsHere = layer.topDepth > pageFrom - EPS; // 이전 페이지에서 이어지는 지층이 아님
+        if (!startsHere) {
+            descInfo.set(idx, { y1, y2, descStartY: y1, descEndY: y1, showDesc: false });
+            return;
+        }
         const descLines = layer.desc ? layer.desc.split('\n') : [];
         const totalDescLines = 1 + 1 + descLines.length; // ▶제목 + 심도 + 내용
-        const textH = totalDescLines * descLineGap + 4; // 텍스트 높이
-
+        const textH = totalDescLines * descLineGap + 4;
         const descStartY = Math.max(y1, descCursorY);
         const descEndY = Math.max(y2, descStartY + textH);
-
-        descBoundaries.push({ descStartY, descEndY });
+        descInfo.set(idx, { y1, y2, descStartY, descEndY, showDesc: true });
         descCursorY = descEndY;
     });
 
     ctx.strokeStyle = '#000';
-    layers.forEach((layer, idx) => {
-        const y1 = bt + layer.topDepth * DEPTH_PX;
-        const y2 = bt + layer.bottomDepth * DEPTH_PX;
+    pageLayers.forEach(({ layer, idx }) => {
+        const { y1, y2, descStartY, descEndY, showDesc } = descInfo.get(idx);
         const h = y2 - y1;
-        const { descStartY, descEndY } = descBoundaries[idx];
+        const isGlobalFirst = idx === 0;
+        const isGlobalLast = idx === layers.length - 1;
+        // 지층 경계는 실제 전환이 "이 페이지 안에서" 일어날 때만 그린다
+        const topBoundaryVisible = !isGlobalFirst && layer.topDepth > pageFrom - EPS;
+        const isLogEndHere = isGlobalLast && layer.bottomDepth <= pageTo + EPS;
 
         // 경계선
         ctx.lineWidth = 0.8;
         ctx.strokeStyle = '#000';
-        if (idx > 0) {
+        if (topBoundaryVisible) {
             // 설명 컬럼 외 영역 (실제 심도 기준 수평선)
             hline(ctx, TL, y1, C.desc.x);
             hline(ctx, C.desc.x + C.desc.w, y1, C.uscs.x + C.uscs.w);
             // 설명 컬럼: 왼쪽 사선 + 수평선 + 오른쪽 사선 (사다리꼴)
-            if (Math.abs(descStartY - y1) > 1) {
-                // 왼쪽 짧은 사선: (desc.x, y1) → (desc.x + diagW, descStartY)
+            if (showDesc && Math.abs(descStartY - y1) > 1) {
                 ctx.beginPath();
                 ctx.moveTo(C.desc.x, y1);
                 ctx.lineTo(C.desc.x + diagW, descStartY);
                 ctx.stroke();
-                // 수평선: diagW ~ (desc.w - diagW) 구간
                 hline(ctx, C.desc.x + diagW, descStartY, C.desc.x + C.desc.w - diagW);
-                // 오른쪽 짧은 사선: (desc.x+desc.w-diagW, descStartY) → (desc.x+desc.w, y1)
                 ctx.beginPath();
                 ctx.moveTo(C.desc.x + C.desc.w - diagW, descStartY);
                 ctx.lineTo(C.desc.x + C.desc.w, y1);
                 ctx.stroke();
             } else {
-                // 차이 없으면 수평선
                 hline(ctx, C.desc.x, y1, C.desc.x + C.desc.w);
             }
         }
-        // 마지막 지층 아래쪽도 같은 형태
-        if (idx === layers.length - 1 && Math.abs(descEndY - y2) > 1) {
-            ctx.beginPath();
-            ctx.moveTo(C.desc.x, y2);
-            ctx.lineTo(C.desc.x + diagW, descEndY);
-            ctx.stroke();
-            hline(ctx, C.desc.x + diagW, descEndY, C.desc.x + C.desc.w - diagW);
-            ctx.beginPath();
-            ctx.moveTo(C.desc.x + C.desc.w - diagW, descEndY);
-            ctx.lineTo(C.desc.x + C.desc.w, y2);
-            ctx.stroke();
-        } else if (idx === layers.length - 1) {
-            hline(ctx, C.desc.x, y2, C.desc.x + C.desc.w);
+        // 로그 종료 지점(마지막 지층 하단)도 같은 형태
+        if (isLogEndHere) {
+            if (showDesc && Math.abs(descEndY - y2) > 1) {
+                ctx.beginPath();
+                ctx.moveTo(C.desc.x, y2);
+                ctx.lineTo(C.desc.x + diagW, descEndY);
+                ctx.stroke();
+                hline(ctx, C.desc.x + diagW, descEndY, C.desc.x + C.desc.w - diagW);
+                ctx.beginPath();
+                ctx.moveTo(C.desc.x + C.desc.w - diagW, descEndY);
+                ctx.lineTo(C.desc.x + C.desc.w, y2);
+                ctx.stroke();
+            } else {
+                hline(ctx, C.desc.x, y2, C.desc.x + C.desc.w);
+            }
         }
 
-        // 텍스트 크기를 층 높이에 맞게 동적 조절
-        const fontSize = Math.min(8, Math.max(5, h * 0.35));
-
-        // ---- 표고 (경계에 표시, 첫 지층 제외) ----
+        // ---- 표고 (경계에 표시, 이 페이지에서 시작하는 경계만) ----
         ctx.fillStyle = '#000';
         ctx.textAlign = 'right';
-        ctx.font = `${fontSize}px "Malgun Gothic"`;
-        if (idx > 0 && h > 10) {
+        ctx.font = '8px "Malgun Gothic"';
+        if (topBoundaryVisible && h > 10) {
             ctx.fillText((data.elevation - layer.topDepth).toFixed(2), C.elev.x + C.elev.w - 2, y1 - 1);
         }
 
         // ---- 심도 ----
-        if (layer.topDepth > 0 && h > 10) {
+        if (topBoundaryVisible && h > 10) {
             ctx.textAlign = 'center';
             ctx.fillText(layer.topDepth.toFixed(1), C.depth.x + C.depth.w / 2, y1 - 1);
         }
 
-        // ---- 층후 (경계선 정렬, 심도와 동일) ----
-        const thickness = (layer.bottomDepth - layer.topDepth).toFixed(2);
-        ctx.textAlign = 'center';
-        ctx.font = '7px "Malgun Gothic"';
-        ctx.fillText(thickness, C.thick.x + C.thick.w / 2, y2 - 1);
+        // ---- 층후 (경계선 정렬, 로그가 이 페이지에서 끝나거나 다음 지층 경계가 보일 때만) ----
+        if (topBoundaryVisible || isLogEndHere) {
+            const thickness = (layer.bottomDepth - layer.topDepth).toFixed(2);
+            ctx.textAlign = 'center';
+            ctx.font = '7px "Malgun Gothic"';
+            ctx.fillText(thickness, C.thick.x + C.thick.w / 2, y2 - 1);
+        }
 
         // ---- 주상도 패턴 ----
         drawPattern(ctx, C.colDiag.x + 1, y1, C.colDiag.w - 2, h, layer.pattern);
 
-        // ---- 지층명 (컬럼 내 중앙, 고정 폰트) ----
+        // ---- 지층명 (보이는 구간의 중앙에 표시) ----
         ctx.fillStyle = '#000';
         ctx.textAlign = 'center';
         ctx.font = '8px "Malgun Gothic"';
         ctx.fillText(layer.name, C.secName.x + C.secName.w / 2, y1 + h / 2 + 3);
 
-        // ---- 설명 (▶ 지층명 + 심도 + 내용, 사다리꼴 안에 텍스트 배치) ----
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#000';
-        const descLines = layer.desc ? layer.desc.split('\n') : [];
-        const textLeft = C.desc.x + diagW + 2; // 왼쪽 사선 안쪽
-        let dy = descStartY + descLineGap;
-        ctx.font = `bold ${descFontSize + 1}px "Malgun Gothic"`;
-        ctx.fillText(`▶${layer.name}`, textLeft, dy);
-        ctx.font = `${descFontSize}px "Malgun Gothic"`;
-        dy += descLineGap;
-        // 심도 자동 표시
-        ctx.fillText(`심도 : ${layer.topDepth.toFixed(2)} ~ ${layer.bottomDepth.toFixed(2)}m`, textLeft + 4, dy);
-        dy += descLineGap;
-        descLines.forEach(dl => {
-            ctx.fillText(dl, textLeft + 4, dy);
+        // ---- 설명 (▶ 지층명 + 심도 + 내용, 이 페이지에서 시작하는 지층만) ----
+        if (showDesc) {
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#000';
+            const descLines = layer.desc ? layer.desc.split('\n') : [];
+            const textLeft = C.desc.x + diagW + 2; // 왼쪽 사선 안쪽
+            let dy = descStartY + descLineGap;
+            ctx.font = `bold ${descFontSize + 1}px "Malgun Gothic"`;
+            ctx.fillText(`▶${layer.name}`, textLeft, dy);
+            ctx.font = `${descFontSize}px "Malgun Gothic"`;
             dy += descLineGap;
-        });
+            // 심도 자동 표시 (지층 전체 범위)
+            ctx.fillText(`심도 : ${layer.topDepth.toFixed(2)} ~ ${layer.bottomDepth.toFixed(2)}m`, textLeft + 4, dy);
+            dy += descLineGap;
+            descLines.forEach(dl => {
+                ctx.fillText(dl, textLeft + 4, dy);
+                dy += descLineGap;
+            });
+        }
 
         // ---- USCS ----
         if (layer.uscs) {
@@ -895,10 +941,18 @@ function drawBody(ctx, data, maxDepth) {
         }
     });
 
-    // 마지막 지층 하단 표고/심도
-    if (layers.length > 0) {
+    // 페이지 상단에서 지층이 이어지는 경우 표시
+    if (pageIdx > 0 && pageLayers.length && pageLayers[0].layer.topDepth < pageFrom - EPS) {
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'left';
+        ctx.font = 'italic 7px "Malgun Gothic"';
+        ctx.fillText('◀ 이전 페이지에서 계속', TL + 2, bt + 9);
+    }
+
+    // 마지막 지층 하단 표고/심도 (로그가 실제로 끝나는 페이지에서만)
+    if (isLastPage && layers.length > 0) {
         const last = layers[layers.length - 1];
-        const yEnd = bt + last.bottomDepth * DEPTH_PX;
+        const yEnd = toY(last.bottomDepth);
         ctx.fillStyle = '#000';
         ctx.textAlign = 'right';
         ctx.font = '8px "Malgun Gothic"';
@@ -908,7 +962,7 @@ function drawBody(ctx, data, maxDepth) {
     }
 
     // SPT
-    drawSPT(ctx, data, bt, maxDepth);
+    drawSPT(ctx, data, layout, pageIdx);
 
     // blow 그래프 눈금 세로선
     const bgl = C.blow.x + 4;
@@ -987,8 +1041,15 @@ function drawGroundWater(ctx, data, bt) {
     ctx.fill();
 }
 
-// ========== SPT ==========
-function drawSPT(ctx, data, bt, maxDepth) {
+// ========== SPT (페이지 심도 범위에 속한 것만) ==========
+function drawSPT(ctx, data, layout, pageIdx) {
+    const bt = BODY_TOP;
+    const page = layout.pages[pageIdx];
+    const pageFrom = page.from, pageTo = page.to;
+    const isLastPage = pageIdx === layout.totalPages - 1;
+    const EPS = 1e-6;
+    const toY = d => bt + (d - pageFrom) * DEPTH_PX;
+
     const bgl = C.blow.x + 4;
     const bgw = C.blow.w - 8;
 
@@ -1000,9 +1061,13 @@ function drawSPT(ctx, data, bt, maxDepth) {
     const sptFont = Math.min(7, Math.max(4, sptGap * 0.4));
     const sptSymFont = Math.min(10, Math.max(5, sptGap * 0.55));
 
-    sptData.forEach((spt) => {
+    const pageSpt = sptData.filter(spt =>
+        spt.depth > pageFrom - EPS && (isLastPage ? spt.depth <= pageTo + EPS : spt.depth < pageTo - EPS)
+    );
+
+    pageSpt.forEach((spt) => {
         // SPT 위치 = 해당 심도
-        const sy = bt + spt.depth * DEPTH_PX;
+        const sy = toY(spt.depth);
 
         ctx.fillStyle = '#000';
         ctx.textAlign = 'center';
@@ -1289,67 +1354,73 @@ function patHR(ctx, x, y, w, h) {
 }
 
 // ========== 하단 ==========
-function drawFooter(ctx, data, yEnd) {
-    if (!layers.length) return;
-    const last = layers[layers.length - 1];
+function drawFooter(ctx, data, layout, pageIdx) {
+    const page = layout.pages[pageIdx];
+    const bodyH = (page.to - page.from) * DEPTH_PX;
+    const yEnd = BODY_TOP + bodyH;
+    const isLastPage = pageIdx === layout.totalPages - 1;
 
     // 본문 테이블 하단 마감선
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 0.8;
     hline(ctx, TL, yEnd, TR);
 
-    // 시추종료 텍스트
     ctx.fillStyle = '#000';
     ctx.textAlign = 'center';
     ctx.font = '9px "Malgun Gothic"';
-    ctx.fillText(`* 심도 ${last.bottomDepth.toFixed(2)} M 에서 시추종료`, PW / 2, yEnd + 18);
+    if (isLastPage && layers.length) {
+        const last = layers[layers.length - 1];
+        ctx.fillText(`* 심도 ${last.bottomDepth.toFixed(2)} M 에서 시추종료`, PW / 2, yEnd + 18);
+    } else if (!isLastPage) {
+        ctx.fillText('▼ 다음 페이지에 계속', PW / 2, yEnd + 18);
+    }
 }
 
-// ========== PNG 출력 ==========
+// ========== PNG 출력 (페이지마다 별도 파일) ==========
+function downloadBlob(blob, fileName) {
+    const a = document.createElement('a');
+    a.download = fileName;
+    a.href = URL.createObjectURL(blob);
+    a.click();
+}
+
 function exportPDF() {
     const data = collectFormData();
     const maxDepth = layers.length ? Math.max(...layers.map(l => l.bottomDepth)) : 20;
-    const FOOTER_H = 30;
-    const availableH = PAGE_H - BODY_TOP - FOOTER_H;
-    DEPTH_PX = availableH / maxDepth;
-    const totalH = PAGE_H;
-
+    const layout = computePagination(maxDepth);
     const scale = 2;
-    const tmp = document.createElement('canvas');
-    tmp.width = PW * scale;
-    tmp.height = totalH * scale;
-    const ctx = tmp.getContext('2d');
-    ctx.scale(scale, scale);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, PW, totalH);
-    ctx.fillStyle = '#000';
 
-    drawTitle(ctx, data);
-    drawHeaderInfo(ctx, data);
-    drawLegend(ctx);
-    drawColHeaders(ctx);
-    drawBody(ctx, data, maxDepth);
-    const bodyH = maxDepth * DEPTH_PX;
-    drawFooter(ctx, data, BODY_TOP + bodyH);
+    for (let i = 0; i < layout.totalPages; i++) {
+        const tmp = document.createElement('canvas');
+        tmp.width = PW * scale;
+        tmp.height = PAGE_H * scale;
+        const ctx = tmp.getContext('2d');
+        ctx.scale(scale, scale);
+        renderPage(ctx, data, layout, i);
 
-    const fileName = `시추주상도_${data.holeNo || 'output'}.png`;
-    tmp.toBlob(async (blob) => {
-        try {
-            const handle = await window.showSaveFilePicker({
-                suggestedName: fileName,
-                types: [{ description: 'PNG 이미지', accept: { 'image/png': ['.png'] } }]
-            });
-            const writable = await handle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-        } catch (e) {
-            if (e.name === 'AbortError') return;
-            const a = document.createElement('a');
-            a.download = fileName;
-            a.href = URL.createObjectURL(blob);
-            a.click();
+        const suffix = layout.totalPages > 1 ? `_${i + 1}p` : '';
+        const fileName = `시추주상도_${data.holeNo || 'output'}${suffix}.png`;
+
+        if (layout.totalPages === 1) {
+            tmp.toBlob(async (blob) => {
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [{ description: 'PNG 이미지', accept: { 'image/png': ['.png'] } }]
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                } catch (e) {
+                    if (e.name === 'AbortError') return;
+                    downloadBlob(blob, fileName);
+                }
+            }, 'image/png');
+        } else {
+            // 여러 페이지는 저장 위치를 매번 물어보면 브라우저 보안 정책상 실패할 수 있어 바로 다운로드
+            tmp.toBlob((blob) => downloadBlob(blob, fileName), 'image/png');
         }
-    }, 'image/png');
+    }
 }
 
 // ========== 유틸 ==========

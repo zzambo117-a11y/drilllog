@@ -147,25 +147,89 @@ function layerFormLoad(i) {
 // 지층 폼: 추가
 function layerFormAdd() {
     const name = document.getElementById('layerFormName').value;
-    const top = parseFloat(document.getElementById('layerFormTop').value) || 0;
-    const bottom = parseFloat(document.getElementById('layerFormBottom').value) || 0;
+    const top = parseFloat(document.getElementById('layerFormTop').value);
+    const bottom = parseFloat(document.getElementById('layerFormBottom').value);
     const uscs = document.getElementById('layerFormUscs').value;
     const desc = document.getElementById('layerFormDesc').value;
-    layers.push({ topDepth: top, bottomDepth: bottom, name, pattern: 'fill', desc, uscs });
+    if (!checkLayerInput(top, bottom, -1)) return;
+    const obj = { topDepth: top, bottomDepth: bottom, name, pattern: 'fill', desc, uscs };
+    layers.push(obj);
     autoSetPattern(layers.length - 1);
+    sortLayers();
     layerFormClear();
+}
+
+// ---- 지층 입력 검증 ----
+// 상부≥하부, 다른 지층과 겹침 → 차단 / 바로 위 지층과 틈 → 확인 후 진행
+const DEPTH_EPS = 1e-6;
+function checkLayerInput(top, bottom, skipIdx) {
+    if (isNaN(top) || isNaN(bottom)) { alert('상부심도와 하부심도를 숫자로 입력하세요.'); return false; }
+    if (top < 0 || bottom < 0) { alert('심도는 0 이상이어야 합니다.'); return false; }
+    if (bottom <= top + DEPTH_EPS) { alert(`하부심도(${bottom})가 상부심도(${top})보다 커야 합니다.`); return false; }
+    const others = layers.filter((_, i) => i !== skipIdx);
+    const hit = others.find(l => top < l.bottomDepth - DEPTH_EPS && bottom > l.topDepth + DEPTH_EPS);
+    if (hit) {
+        alert(`다른 지층과 심도가 겹칩니다.\n입력: ${top} ~ ${bottom} m\n기존: ${hit.name} ${hit.topDepth} ~ ${hit.bottomDepth} m`);
+        return false;
+    }
+    // 위쪽 지층과의 틈 확인
+    const above = others.filter(l => l.bottomDepth <= top + DEPTH_EPS).sort((a, b) => b.bottomDepth - a.bottomDepth)[0];
+    const gapTop = above ? above.bottomDepth : 0;
+    if (top - gapTop > DEPTH_EPS) {
+        if (!confirm(`${gapTop} ~ ${top} m 구간에 지층이 비어 있습니다.\n그래도 저장할까요?`)) return false;
+    }
+    return true;
+}
+function sortLayers() {
+    layers.sort((a, b) => a.topDepth - b.topDepth);
+}
+function sortSPT() {
+    sptData.sort((a, b) => a.depth - b.depth);
+}
+// 전체 데이터 점검 (출력 전 확인용) — 문제 목록 반환
+function validateAll(d) {
+    const issues = [];
+    if (!String(d.holeNo || '').trim()) issues.push('공번이 비어 있습니다.');
+    if (!String(d.location || '').trim()) issues.push('위치가 비어 있습니다.');
+    if (!d.elevation) issues.push('지반표고가 비어 있거나 0입니다.');
+    if (!String(d.dateFrom || '').trim()) issues.push('시추일이 비어 있습니다.');
+    if (!layers.length) issues.push('지층 정보가 없습니다.');
+    const ls = layers.slice().sort((a, b) => a.topDepth - b.topDepth);
+    if (ls.length && ls[0].topDepth > DEPTH_EPS) issues.push(`0 ~ ${ls[0].topDepth} m 구간에 지층이 없습니다.`);
+    ls.forEach((l, i) => {
+        if (l.bottomDepth <= l.topDepth + DEPTH_EPS) issues.push(`${l.name} ${l.topDepth}~${l.bottomDepth} m: 하부심도가 상부심도보다 작거나 같습니다.`);
+        const nx = ls[i + 1];
+        if (!nx) return;
+        if (nx.topDepth < l.bottomDepth - DEPTH_EPS) issues.push(`${l.name}(${l.topDepth}~${l.bottomDepth})와 ${nx.name}(${nx.topDepth}~${nx.bottomDepth}) 심도가 겹칩니다.`);
+        else if (nx.topDepth > l.bottomDepth + DEPTH_EPS) issues.push(`${l.bottomDepth} ~ ${nx.topDepth} m 구간에 지층이 없습니다.`);
+    });
+    const maxD = ls.length ? Math.max(...ls.map(l => l.bottomDepth)) : 0;
+    const seen = {};
+    sptData.forEach(s => {
+        if (ls.length && s.depth > maxD + DEPTH_EPS) issues.push(`SPT ${s.sampleNo || ''} 심도 ${s.depth} m가 시추 종료심도(${maxD} m)보다 깊습니다.`);
+        const k = Number(s.depth).toFixed(2);
+        if (seen[k]) issues.push(`SPT 심도 ${s.depth} m가 중복됩니다.`);
+        seen[k] = true;
+    });
+    return issues;
 }
 
 // 지층 폼: 수정
 function layerFormUpdate() {
     const idx = parseInt(document.getElementById('layerFormIdx').value);
     if (idx < 0 || idx >= layers.length) { alert('수정할 지층을 선택하세요.'); return; }
-    layers[idx].name = document.getElementById('layerFormName').value;
-    layers[idx].topDepth = parseFloat(document.getElementById('layerFormTop').value) || 0;
-    layers[idx].bottomDepth = parseFloat(document.getElementById('layerFormBottom').value) || 0;
-    layers[idx].uscs = document.getElementById('layerFormUscs').value;
-    layers[idx].desc = document.getElementById('layerFormDesc').value;
+    const top = parseFloat(document.getElementById('layerFormTop').value);
+    const bottom = parseFloat(document.getElementById('layerFormBottom').value);
+    if (!checkLayerInput(top, bottom, idx)) return;
+    const obj = layers[idx];
+    obj.name = document.getElementById('layerFormName').value;
+    obj.topDepth = top;
+    obj.bottomDepth = bottom;
+    obj.uscs = document.getElementById('layerFormUscs').value;
+    obj.desc = document.getElementById('layerFormDesc').value;
     autoSetPattern(idx);
+    sortLayers();
+    document.getElementById('layerFormIdx').value = layers.indexOf(obj);
     refreshLayerTable();
 }
 
@@ -173,6 +237,8 @@ function layerFormUpdate() {
 function layerFormDelete() {
     const idx = parseInt(document.getElementById('layerFormIdx').value);
     if (idx < 0 || idx >= layers.length) { alert('삭제할 지층을 선택하세요.'); return; }
+    const l = layers[idx];
+    if (!confirm(`${idx + 1}번 지층(${l.name} ${l.topDepth}~${l.bottomDepth} m)을 삭제할까요?`)) return;
     layers.splice(idx, 1);
     layerFormClear();
 }
@@ -203,9 +269,48 @@ function refreshSPTTable() {
             <td style="text-align:center">${s.depth.toFixed(1)}</td>
             <td style="text-align:center">${s.sampleNo || '-'}</td>
             <td style="text-align:center">${s.method}</td>
-            <td style="text-align:center">${s.blow1}/${s.blow2}</td>`;
+            <td style="text-align:center">${isNoNSample(s, coreNoNOn()) ? '-' : `${s.blow1}/${s.blow2}`}</td>`;
         tb.appendChild(tr);
     });
+}
+
+// ---- CORE·U.D 시료 (N값 없음) 옵션 ----
+function isNoNSample(s, opt) {
+    return !!opt && (s.method === 'CORE' || s.method === 'U.D');
+}
+function coreNoNOn() {
+    const el = document.getElementById('coreNoN');
+    return !!(el && el.checked);
+}
+function nextSampleNo(prefix) {
+    const re = new RegExp('^' + prefix + '-(\\d+)$');
+    const nums = sptData.map(s => { const m = String(s.sampleNo || '').match(re); return m ? parseInt(m[1]) : 0; });
+    return `${prefix}-${(nums.length ? Math.max(...nums) : 0) + 1}`;
+}
+function updateBlowInputsState() {
+    const method = document.getElementById('sptFormMethod').value;
+    const noN = coreNoNOn() && (method === 'CORE' || method === 'U.D');
+    ['sptFormBlow1', 'sptFormBlow2'].forEach(id => {
+        const el = document.getElementById(id);
+        el.disabled = noN;
+        el.style.background = noN ? '#eee' : '';
+    });
+}
+function onSptMethodChange() {
+    if (coreNoNOn()) {
+        const method = document.getElementById('sptFormMethod').value;
+        const editing = parseInt(document.getElementById('sptFormIdx').value) >= 0;
+        if (!editing) {
+            const prefix = method === 'CORE' ? 'C' : method === 'U.D' ? 'U' : method === 'S.P.T' ? 'S' : null;
+            if (prefix) document.getElementById('sptFormSampleNo').value = nextSampleNo(prefix);
+        }
+    }
+    updateBlowInputsState();
+}
+function onCoreNoNChange() {
+    updateBlowInputsState();
+    refreshSPTTable();
+    renderPreview();
 }
 
 // SPT 폼: 테이블 행 클릭 → 폼에 로드
@@ -217,17 +322,20 @@ function sptFormLoad(i) {
     document.getElementById('sptFormMethod').value = s.method;
     document.getElementById('sptFormBlow1').value = s.blow1;
     document.getElementById('sptFormBlow2').value = s.blow2;
+    updateBlowInputsState();
     refreshSPTTable();
 }
 
 // SPT 폼: 추가
 function sptFormAdd() {
-    const depth = parseFloat(document.getElementById('sptFormDepth').value) || 0;
+    const depth = parseFloat(document.getElementById('sptFormDepth').value);
     const sampleNo = document.getElementById('sptFormSampleNo').value;
     const method = document.getElementById('sptFormMethod').value;
     const blow1 = parseInt(document.getElementById('sptFormBlow1').value) || 0;
     const blow2 = parseInt(document.getElementById('sptFormBlow2').value) || 0;
+    if (!checkSPTInput(depth, -1)) return;
     sptData.push({ depth, sampleNo, method, blow1, blow2 });
+    sortSPT();
     sptFormClear();
 }
 
@@ -235,18 +343,37 @@ function sptFormAdd() {
 function sptFormUpdate() {
     const idx = parseInt(document.getElementById('sptFormIdx').value);
     if (idx < 0 || idx >= sptData.length) { alert('수정할 항목을 선택하세요.'); return; }
-    sptData[idx].depth = parseFloat(document.getElementById('sptFormDepth').value) || 0;
-    sptData[idx].sampleNo = document.getElementById('sptFormSampleNo').value;
-    sptData[idx].method = document.getElementById('sptFormMethod').value;
-    sptData[idx].blow1 = parseInt(document.getElementById('sptFormBlow1').value) || 0;
-    sptData[idx].blow2 = parseInt(document.getElementById('sptFormBlow2').value) || 0;
+    const depth = parseFloat(document.getElementById('sptFormDepth').value);
+    if (!checkSPTInput(depth, idx)) return;
+    const obj = sptData[idx];
+    obj.depth = depth;
+    obj.sampleNo = document.getElementById('sptFormSampleNo').value;
+    obj.method = document.getElementById('sptFormMethod').value;
+    obj.blow1 = parseInt(document.getElementById('sptFormBlow1').value) || 0;
+    obj.blow2 = parseInt(document.getElementById('sptFormBlow2').value) || 0;
+    sortSPT();
+    document.getElementById('sptFormIdx').value = sptData.indexOf(obj);
     refreshSPTTable();
+}
+
+// ---- SPT 입력 검증 ----
+function checkSPTInput(depth, skipIdx) {
+    if (isNaN(depth) || depth < 0) { alert('채취심도를 0 이상의 숫자로 입력하세요.'); return false; }
+    const dup = sptData.find((s, i) => i !== skipIdx && Math.abs(s.depth - depth) < 1e-6);
+    if (dup && !confirm(`심도 ${depth} m에 이미 SPT(${dup.sampleNo || dup.method})가 있습니다.\n그래도 저장할까요?`)) return false;
+    if (layers.length) {
+        const maxD = Math.max(...layers.map(l => l.bottomDepth));
+        if (depth > maxD + 1e-6 && !confirm(`채취심도 ${depth} m가 시추 종료심도(${maxD} m)보다 깊습니다.\n그래도 저장할까요?`)) return false;
+    }
+    return true;
 }
 
 // SPT 폼: 삭제
 function sptFormDelete() {
     const idx = parseInt(document.getElementById('sptFormIdx').value);
     if (idx < 0 || idx >= sptData.length) { alert('삭제할 항목을 선택하세요.'); return; }
+    const sp = sptData[idx];
+    if (!confirm(`심도 ${sp.depth} m SPT(${sp.sampleNo || sp.method})를 삭제할까요?`)) return;
     sptData.splice(idx, 1);
     sptFormClear();
 }
@@ -266,6 +393,7 @@ function sptFormClear() {
     document.getElementById('sptFormMethod').value = 'S.P.T';
     document.getElementById('sptFormBlow1').value = 0;
     document.getElementById('sptFormBlow2').value = 30;
+    updateBlowInputsState();
     refreshSPTTable();
 }
 
@@ -290,8 +418,10 @@ function collectFormData() {
         projectName: document.getElementById('projectName').value,
         holeNo: document.getElementById('holeNo').value,
         location: document.getElementById('location').value,
-        elevation: parseFloat(document.getElementById('elevation').value),
+        elevation: (v => isNaN(v) ? 0 : v)(parseFloat(document.getElementById('elevation').value)),
         groundWater: document.getElementById('groundWater').value,
+        showGwMarker: document.getElementById('showGwMarker').checked,
+        coreNoN: document.getElementById('coreNoN').checked,
         dateFrom: document.getElementById('dateFrom').value,
         dateTo: document.getElementById('dateTo').value,
         inspector: document.getElementById('inspector').value,
@@ -324,6 +454,7 @@ async function saveData() {
     }
 }
 function loadData() { document.getElementById('fileInput').click(); }
+function hasWork() { return layers.length > 0 || sptData.length > 0; }
 function handleFileLoad(e) {
     const f = e.target.files[0]; if(!f) return;
     const r = new FileReader();
@@ -333,6 +464,10 @@ function handleFileLoad(e) {
 function applyFormData(d) {
     ['projectName','holeNo','location','groundWater','dateFrom','dateTo','inspector','equipment'].forEach(k => document.getElementById(k).value = d[k]||'');
     document.getElementById('elevation').value = d.elevation||0;
+    // 이 옵션이 없는 예전 JSON(화천·태백 등)은 ▼ 표시 끔 → 예전과 동일하게 출력
+    document.getElementById('showGwMarker').checked = d.showGwMarker === true;
+    // CORE·U.D N값 제외 옵션: 명시적으로 켠 파일만 켜짐 (기존 파일·인제까지는 꺼짐)
+    document.getElementById('coreNoN').checked = d.coreNoN === true;
     document.getElementById('pageNo').value = d.pageNo||1;
     document.getElementById('totalPages').value = d.totalPages||1;
     layers = d.layers||[];
@@ -346,10 +481,11 @@ function applyFormData(d) {
 
 // --- 새로 입력 (전체 리셋) ---
 function newData() {
-    if (!confirm('모든 입력 데이터를 초기화하시겠습니까?')) return;
+    if (!confirm('화면의 입력을 비우고 새 공번을 시작할까요?\n(지금 공번은 자동저장 기록에 남아 있습니다. 파일로도 남기려면 먼저 [데이터 저장])')) return;
+    autosaveNow();
     applyFormData({
         projectName: '', holeNo: '', location: '',
-        elevation: 0, groundWater: '',
+        elevation: 0, groundWater: '', showGwMarker: true, coreNoN: false,
         dateFrom: '', dateTo: '', inspector: '',
         equipment: '', pageNo: 1, totalPages: 1,
         layers: [], sptData: []
@@ -361,6 +497,7 @@ function newData() {
 
 // --- 샘플 데이터 (GS-2 기반) ---
 function loadSampleData() {
+    if (!confirm('샘플 데이터(금강 GS-2)로 바꾸면 지금 입력 중인 내용이 화면에서 사라집니다.\n(자동저장 기록에는 남아 있습니다)\n계속할까요?')) return;
     applyFormData({
         projectName: '2025년 지하수자원(금강) 상세조사 시험공',
         holeNo: 'GS-2', location: '사리면 중흥리 986', elevation: 77.16,
@@ -961,6 +1098,9 @@ function drawBody(ctx, data, layout, pageIdx) {
         ctx.fillText(last.bottomDepth.toFixed(1), C.depth.x + C.depth.w / 2, yEnd - 3);
     }
 
+    // 지하수위 ▼
+    drawGroundWater(ctx, data, bt, pageFrom, pageTo, isLastPage);
+
     // SPT
     drawSPT(ctx, data, layout, pageIdx);
 
@@ -1021,24 +1161,39 @@ function drawBoreholeTop(ctx, bt) {
 }
 
 // ========== 지하수위 ==========
-function drawGroundWater(ctx, data, bt) {
+function drawGroundWater(ctx, data, bt, pageFrom, pageTo, isLastPage) {
+    if (!data.showGwMarker) return;
     if (!data.groundWater) return;
-    const gwMatch = data.groundWater.match(/([\d.]+)/);
+    const gwMatch = String(data.groundWater).match(/(\d+(?:\.\d+)?)/);
     if (!gwMatch) return;
     const gwDepth = parseFloat(gwMatch[1]);
-    const gwY = bt + gwDepth * DEPTH_PX;
+    if (isNaN(gwDepth)) return;
+    const EPS = 1e-6;
+    // 이 페이지 심도 범위에 있을 때만 표시
+    if (gwDepth < pageFrom - EPS) return;
+    if (isLastPage ? gwDepth > pageTo + EPS : gwDepth >= pageTo - EPS) return;
+    const gwY = bt + (gwDepth - pageFrom) * DEPTH_PX;
 
-    // 참고이미지: 주상도 컬럼 좌측 경계(scale 컬럼과 사이)에 역삼각형
+    // 주상도 컬럼 좌측 경계에 ▼ (꼭짓점이 지하수위 심도) + 수면 표시선
     const triX = C.colDiag.x;
-    const triSize = 5;
-
+    const half = 4;
+    const triH = 6;
+    ctx.save();
     ctx.fillStyle = '#000';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(triX - triSize, gwY);
-    ctx.lineTo(triX + triSize, gwY);
-    ctx.lineTo(triX, gwY + triSize + 1);
+    ctx.moveTo(triX - half, gwY - triH);
+    ctx.lineTo(triX + half, gwY - triH);
+    ctx.lineTo(triX, gwY);
     ctx.closePath();
+    ctx.stroke();   // 패턴 위에서도 보이도록 흰 테두리
     ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 0.6;
+    hline(ctx, triX - 5, gwY + 1.5, triX + 5);
+    hline(ctx, triX - 3, gwY + 3.5, triX + 3);
+    ctx.restore();
 }
 
 // ========== SPT (페이지 심도 범위에 속한 것만) ==========
@@ -1091,6 +1246,9 @@ function drawSPT(ctx, data, layout, pageIdx) {
         // 채취심도
         ctx.font = `${sptFont}px "Malgun Gothic"`;
         ctx.fillText(spt.depth.toFixed(1), C.sampDep.x + C.sampDep.w / 2, sy + 3);
+
+        // CORE·U.D 시료(옵션 켬): N값·그래프 생략
+        if (isNoNSample(spt, data.coreNoN)) return;
 
         // N값/타격 (BM-1 참고: "50/8" = 타격횟수/관입량cm)
         ctx.font = `${sptFont + 1}px "Malgun Gothic"`;
@@ -1386,6 +1544,8 @@ function downloadBlob(blob, fileName) {
 
 function exportPDF() {
     const data = collectFormData();
+    const issues = validateAll(data);
+    if (issues.length && !confirm('출력 전에 확인할 사항이 있습니다.\n\n- ' + issues.join('\n- ') + '\n\n그래도 출력할까요?')) return;
     const maxDepth = layers.length ? Math.max(...layers.map(l => l.bottomDepth)) : 20;
     const layout = computePagination(maxDepth);
     const scale = 2;
@@ -1431,9 +1591,129 @@ function vline(ctx, x, y1, y2) {
     ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke();
 }
 
+// ========== 자동저장 ==========
+// 입력이 바뀔 때마다 기기(localStorage)에 저장. 공번별 기록도 함께 보관.
+const AUTOSAVE_KEY = 'drilllog_autosave_v1';
+let autosaveReady = false;   // 초기 복구 전에는 저장하지 않음
+let autosaveTimer = null;
+
+function readStore() {
+    try {
+        const raw = localStorage.getItem(AUTOSAVE_KEY);
+        const st = raw ? JSON.parse(raw) : null;
+        if (st && typeof st === 'object') { st.holes = st.holes || {}; return st; }
+    } catch (e) { /* 저장소 사용 불가 또는 손상 */ }
+    return { current: null, holes: {} };
+}
+function writeStore(st) {
+    try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(st)); return true; }
+    catch (e) { return false; }
+}
+function autosaveNow() {
+    if (!autosaveReady) return;
+    const d = collectFormData();
+    const st = readStore();
+    const now = new Date();
+    st.current = d;
+    const key = String(d.holeNo || '').trim();
+    if (key && (d.layers.length || d.sptData.length)) {
+        st.holes[key] = { data: d, savedAt: now.toISOString() };
+    }
+    const ok = writeStore(st);
+    setAutosaveStatus(ok
+        ? `자동저장됨 ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+        : '⚠ 자동저장 실패 — [데이터 저장]으로 파일 저장하세요', !ok);
+    refreshAutosaveList();
+}
+function scheduleAutosave() {
+    if (!autosaveReady) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(autosaveNow, 300);
+}
+function setAutosaveStatus(msg, isError) {
+    const el = document.getElementById('autosaveStatus');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = isError ? '#e74c3c' : '#27ae60';
+}
+function refreshAutosaveList() {
+    const sel = document.getElementById('autosaveList');
+    if (!sel) return;
+    const st = readStore();
+    const prev = sel.value;
+    const entries = Object.entries(st.holes).sort((a, b) => (b[1].savedAt || '').localeCompare(a[1].savedAt || ''));
+    sel.innerHTML = '';
+    if (!entries.length) {
+        sel.innerHTML = '<option value="">(저장된 공번 없음)</option>';
+        return;
+    }
+    entries.forEach(([k, v]) => {
+        const t = v.savedAt ? new Date(v.savedAt) : null;
+        const ts = t ? `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}` : '';
+        const n = (v.data && v.data.layers) ? v.data.layers.length : 0;
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = `${k} — 지층 ${n}개 (${ts})`;
+        sel.appendChild(opt);
+    });
+    if (prev && st.holes[prev]) sel.value = prev;
+}
+function restoreAutosaveHole() {
+    const sel = document.getElementById('autosaveList');
+    const key = sel && sel.value;
+    if (!key) return;
+    const st = readStore();
+    const item = st.holes[key];
+    if (!item) { alert('기록을 찾을 수 없습니다.'); return; }
+    const curHole = String(document.getElementById('holeNo').value || '').trim();
+    if (hasWork() && curHole !== key && !confirm(`화면의 ${curHole || '현재'} 입력을 ${key} 기록으로 바꿀까요?\n(현재 입력도 자동저장 기록에 남아 있습니다)`)) return;
+    applyFormData(JSON.parse(JSON.stringify(item.data)));
+    layerFormClear(); sptFormClear();
+    renderPreview();
+    autosaveNow();
+}
+function deleteAutosaveHole() {
+    const sel = document.getElementById('autosaveList');
+    const key = sel && sel.value;
+    if (!key) return;
+    if (!confirm(`자동저장 기록에서 ${key}를 삭제할까요?\n(화면의 입력 내용은 그대로입니다)`)) return;
+    const st = readStore();
+    delete st.holes[key];
+    writeStore(st);
+    refreshAutosaveList();
+}
+
+// 표/폼 갱신 시 자동저장 연결
+const _refreshLayerTable = refreshLayerTable;
+refreshLayerTable = function () { _refreshLayerTable(); scheduleAutosave(); };
+const _refreshSPTTable = refreshSPTTable;
+refreshSPTTable = function () { _refreshSPTTable(); scheduleAutosave(); };
+
 // ========== 초기화 ==========
 document.addEventListener('DOMContentLoaded', () => {
+    // 기본정보 입력칸 변경 시 자동저장
+    ['projectName','holeNo','location','elevation','groundWater','showGwMarker','coreNoN','dateFrom','dateTo','inspector'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('input', scheduleAutosave); el.addEventListener('change', scheduleAutosave); }
+    });
+    // 직전 작업 복구
+    const st = readStore();
+    let restored = false;
+    if (st.current) {
+        try { applyFormData(st.current); restored = true; } catch (e) { /* 손상된 기록은 무시 */ }
+    }
     refreshLayerTable();
     refreshSPTTable();
+    layerFormClear();
+    sptFormClear();
     renderPreview();
+    autosaveReady = true;
+    refreshAutosaveList();
+    let storageOk = true;
+    try { localStorage.setItem('drilllog_test', '1'); localStorage.removeItem('drilllog_test'); } catch (e) { storageOk = false; }
+    if (!storageOk) setAutosaveStatus('⚠ 이 브라우저에서는 자동저장이 안 됩니다 — [데이터 저장]을 자주 눌러주세요', true);
+    else setAutosaveStatus(restored ? '직전 작업을 복구했습니다' : '자동저장 켜짐', false);
 });
+// 앱을 내리거나 닫을 때 즉시 저장
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { clearTimeout(autosaveTimer); autosaveNow(); } });
+window.addEventListener('pagehide', () => { clearTimeout(autosaveTimer); autosaveNow(); });

@@ -104,7 +104,7 @@
 
             .form-row { flex-wrap: wrap; }
             .form-row label { min-width: 70px; font-size: 13px; }
-            .form-row input, .form-row select { font-size: 14px; padding: 8px; min-height: 36px; }
+            .form-row input, .form-row select { font-size: 16px; padding: 8px; min-height: 36px; }
 
             .layer-table th, .layer-table td { padding: 4px 2px; font-size: 11px; }
             .layer-table input, .layer-table select { font-size: 12px; padding: 4px; }
@@ -118,8 +118,12 @@
             .section-body { padding: 12px; }
             .section-body label { font-size: 12px; }
             .section-body input, .section-body select, .section-body textarea {
-                font-size: 14px !important; padding: 8px !important; min-height: 36px;
+                font-size: 16px !important; padding: 8px !important; min-height: 36px;
             }
+            /* iOS: 16px 미만 입력칸은 포커스 시 화면이 확대되므로 모든 입력칸 16px */
+            input, select, textarea { font-size: 16px !important; }
+            /* 현장(장갑 착용)에서 누르기 쉽게 폼 버튼 확대 */
+            .section-body .btn { font-size: 14px !important; padding: 10px 14px !important; }
 
             .input-panel.mobile-hidden { display: none; }
             .preview-panel.mobile-hidden { display: none; }
@@ -144,13 +148,14 @@
                     기본 정보 <span class="toggle-arrow">▼</span>
                 </div>
                 <div class="section-body">
-                    <div class="form-row"><label>공사명</label><input type="text" id="projectName" value="2025년 지하수자원(금강) 상세조사 시험공"></div>
-                    <div class="form-row"><label>공번</label><input type="text" id="holeNo" value="GS-2"></div>
-                    <div class="form-row"><label>위치</label><input type="text" id="location" value="사리면 종률리 986"></div>
-                    <div class="form-row"><label>지반표고</label><input type="number" id="elevation" value="77.16" step="0.01"> <span style="font-size:12px">M</span></div>
-                    <div class="form-row"><label>지하수위</label><input type="text" id="groundWater" value="GL- 2.70"> <span style="font-size:12px">M</span></div>
-                    <div class="form-row"><label>시추일</label><input type="text" id="dateFrom" value="2025.10.30" style="width:120px;flex:none"> <span style="font-size:12px">~</span> <input type="text" id="dateTo" value="2025.10.30" style="width:120px;flex:none"></div>
-                    <div class="form-row"><label>감독자</label><input type="text" id="inspector" value="배 O 제"></div>
+                    <div class="form-row"><label>공사명</label><input type="text" id="projectName" value="2026년 지하수저류댐 상세조사(산간)"></div>
+                    <div class="form-row"><label>공번</label><input type="text" id="holeNo" value=""></div>
+                    <div class="form-row"><label>위치</label><input type="text" id="location" value=""></div>
+                    <div class="form-row"><label>지반표고</label><input type="number" id="elevation" value="" step="0.01" inputmode="decimal"> <span style="font-size:12px">M</span></div>
+                    <div class="form-row"><label>지하수위</label><input type="text" id="groundWater" value="" placeholder="GL- 0.00"> <span style="font-size:12px">M</span></div>
+                    <div class="form-row"><label></label><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#333;cursor:pointer;min-width:0"><input type="checkbox" id="showGwMarker" checked style="flex:none;width:18px;height:18px;min-height:0;padding:0" onchange="renderPreview()"> 주상도에 지하수위 ▼ 표시</label></div>
+                    <div class="form-row"><label>시추일</label><input type="text" id="dateFrom" value="" placeholder="YYYY.MM.DD" style="width:120px;flex:none"> <span style="font-size:12px">~</span> <input type="text" id="dateTo" value="" placeholder="YYYY.MM.DD" style="width:120px;flex:none"></div>
+                    <div class="form-row"><label>감독자</label><input type="text" id="inspector" value=""></div>
                     <input type="hidden" id="equipment" value="">
                     <input type="hidden" id="pageNo" value="1">
                     <input type="hidden" id="totalPages" value="1">
@@ -195,11 +200,11 @@
                             </div>
                             <div style="flex:0.6">
                                 <label style="font-size:11px;color:#555">상부심도</label>
-                                <input type="number" id="layerFormTop" step="0.1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                <input type="number" id="layerFormTop" inputmode="decimal" step="0.1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
                             </div>
                             <div style="flex:0.6">
                                 <label style="font-size:11px;color:#555">하부심도</label>
-                                <input type="number" id="layerFormBottom" step="0.1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                <input type="number" id="layerFormBottom" inputmode="decimal" step="0.1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
                             </div>
                             <div style="flex:0.8">
                                 <label style="font-size:11px;color:#555">USCS</label>
@@ -260,6 +265,10 @@
                     표준관입시험 (SPT) <span class="toggle-arrow">▼</span>
                 </div>
                 <div class="section-body">
+                    <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;color:#333;cursor:pointer;margin-bottom:6px;line-height:1.4">
+                        <input type="checkbox" id="coreNoN" style="flex:none;width:18px;height:18px;min-height:0;padding:0;margin-top:1px" onchange="onCoreNoNChange()">
+                        <span>CORE·U.D 시료는 N값 없이 표시 (입도시료 등 SPT와 다른 심도)<br><span style="color:#888;font-size:11px">끄면 기존 방식 — 화천·태백·인제는 끈 상태로 사용</span></span>
+                    </label>
                     <!-- 요약 테이블 -->
                     <table class="spt-table" id="sptSummaryTable">
                         <thead>
@@ -280,7 +289,7 @@
                         <div style="display:flex; gap:6px; margin-bottom:6px;">
                             <div style="flex:1">
                                 <label style="font-size:11px;color:#555">채취심도 (m)</label>
-                                <input type="number" id="sptFormDepth" step="0.5" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                <input type="number" id="sptFormDepth" inputmode="decimal" step="0.5" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
                             </div>
                             <div style="flex:1">
                                 <label style="font-size:11px;color:#555">시료번호</label>
@@ -288,7 +297,7 @@
                             </div>
                             <div style="flex:1">
                                 <label style="font-size:11px;color:#555">채취방법</label>
-                                <select id="sptFormMethod" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                <select id="sptFormMethod" onchange="onSptMethodChange()" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
                                     <option value="S.P.T">S.P.T (표준관입)</option>
                                     <option value="U.D">U.D (자연시료)</option>
                                     <option value="CORE">CORE (코어시료)</option>
@@ -299,11 +308,11 @@
                         <div style="display:flex; gap:6px; margin-bottom:8px;">
                             <div style="flex:1">
                                 <label style="font-size:11px;color:#555">타격횟수 (N값)</label>
-                                <input type="number" id="sptFormBlow1" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                <input type="number" id="sptFormBlow1" inputmode="numeric" value="0" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
                             </div>
                             <div style="flex:1">
                                 <label style="font-size:11px;color:#555">관입량 (cm)</label>
-                                <input type="number" id="sptFormBlow2" value="30" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
+                                <input type="number" id="sptFormBlow2" inputmode="numeric" value="30" style="width:100%;padding:4px;font-size:12px;border:1px solid #ccc;border-radius:3px">
                             </div>
                         </div>
                         <div style="display:flex; gap:4px;">
@@ -327,6 +336,25 @@
                 <button class="btn btn-primary" onclick="loadData()">데이터 불러오기</button>
                 <button class="btn btn-danger" onclick="loadSampleData()">샘플 데이터</button>
                 <button class="btn" onclick="newData()" style="background:#95a5a6;color:#fff;">새로 입력</button>
+            </div>
+
+            <!-- 자동저장 -->
+            <div class="section" style="margin-top: 12px;">
+                <div class="section-header" onclick="toggleSection(this)">
+                    자동저장 기록 <span class="toggle-arrow">▼</span>
+                </div>
+                <div class="section-body">
+                    <div id="autosaveStatus" style="font-size:12px;margin-bottom:6px;color:#27ae60"></div>
+                    <div class="form-row"><select id="autosaveList"></select></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="restoreAutosaveHole()">선택한 공번 불러오기</button>
+                        <button class="btn btn-danger" onclick="deleteAutosaveHole()">기록 삭제</button>
+                    </div>
+                    <div style="font-size:11px;color:#777;margin-top:6px;line-height:1.5">
+                        입력할 때마다 이 기기에 자동 저장됩니다. 공번별로 보관되며, 앱을 다시 열면 마지막 작업이 복구됩니다.<br>
+                        기기 저장은 브라우저 데이터 삭제 시 지워지므로, 공이 끝나면 [데이터 저장]으로 파일도 남겨주세요.
+                    </div>
+                </div>
             </div>
         </div>
 
